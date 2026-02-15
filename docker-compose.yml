@@ -1,0 +1,70 @@
+version: "3.9"
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: overwatch-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: overwatch_dev_password
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./apps/server
+      dockerfile: Dockerfile
+    container_name: overwatch-server
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      MONGODB_URI: mongodb://root:overwatch_dev_password@mongodb:27017/overwatch?authSource=admin
+      ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./apps/server/src:/app/src
+
+  worker:
+    build:
+      context: ./apps/worker
+      dockerfile: Dockerfile
+    container_name: overwatch-worker
+    environment:
+      NODE_ENV: development
+      MONGODB_URI: mongodb://root:overwatch_dev_password@mongodb:27017/overwatch?authSource=admin
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./apps/worker/src:/app/src
+      - ./apps/worker/logs:/app/logs
+
+  llm-service:
+    build:
+      context: ./apps/llm-service
+      dockerfile: Dockerfile
+    container_name: overwatch-llm
+    ports:
+      - "8000:8000"
+    environment:
+      LOG_LEVEL: info
+    volumes:
+      - llm_cache:/home/llmuser/.cache/huggingface
+
+volumes:
+  mongodb_data:
+  llm_cache:
+
+networks:
+  default:
+    name: overwatch-network
